@@ -1,140 +1,212 @@
 # Student_Name1, Student_ID1
 # Student_Name2, Student_ID2
 
-# Please replace the above comments with your names and ID numbers in the same format.
-
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.fft import fft2, ifft2, fftshift, ifftshift
+import warnings
+warnings.filterwarnings("ignore")
 
+##########################################
+# a) scale_down(image, resize_ratio)
+##########################################
+def scale_down(image, resize_ratio):
+    """
+    Scale down the image using a Fourier transform (no smoothing).
+    The output dimensions are (resize_ratio * original dimensions).
+    """
+    image_float = image.astype(np.float32)
+    orig_h, orig_w = image.shape
+    new_h = int(orig_h * resize_ratio)
+    new_w = int(orig_w * resize_ratio)
 
-def scale_image(image, height_ratio, width_ratio):
-    """Scales an image using Fourier Transform based on separate height and width ratios."""
-    h, w = image.shape
-    new_h, new_w = int(h * height_ratio), int(w * width_ratio)
+    F = fftshift(fft2(image_float))
+    center_y, center_x = F.shape[0] // 2, F.shape[1] // 2
+    half_new_h = new_h // 2
+    half_new_w = new_w // 2
 
-    print(f"   -> Scaling image to {new_h}x{new_w} (height ratio: {height_ratio:.2f}, width ratio: {width_ratio:.2f})")
+    if new_h % 2 == 0:
+        y_start = center_y - half_new_h
+        y_end = center_y + half_new_h
+    else:
+        y_start = center_y - half_new_h
+        y_end = center_y + half_new_h + 1
 
-    scaled_image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    return scaled_image
+    if new_w % 2 == 0:
+        x_start = center_x - half_new_w
+        x_end = center_x + half_new_w
+    else:
+        x_start = center_x - half_new_w
+        x_end = center_x + half_new_w + 1
 
+    F_cropped = F[y_start:y_end, x_start:x_end]
+    result = ifft2(ifftshift(F_cropped))
+    result = np.abs(result)
+    result = np.clip(result, 0, 255)
+    return result.astype(np.uint8)
 
+##########################################
+# b) scale_up(image, resize_ratio)
+##########################################
+def scale_up(image, resize_ratio):
+    """
+    Scale up the image using a Fourier transform.
+    Zero-pad the Fourier spectrum so that the output dimensions are
+    (resize_ratio * original dimensions).
+    """
+    image_float = image.astype(np.float32)
+    orig_h, orig_w = image.shape
+    new_h = int(orig_h * resize_ratio)
+    new_w = int(orig_w * resize_ratio)
+
+    F = fftshift(fft2(image_float))
+    newF = np.zeros((new_h, new_w), dtype=complex)
+
+    start_y = (new_h - orig_h) // 2
+    start_x = (new_w - orig_w) // 2
+    newF[start_y:start_y+orig_h, start_x:start_x+orig_w] = F
+
+    result = ifft2(ifftshift(newF))
+    result = np.abs(result)
+    scale_factor = (new_h * new_w) / (orig_h * orig_w)
+    result = result * scale_factor
+    result = np.clip(result, 0, 255)
+    return result.astype(np.uint8)
+
+def scale_image(image, resize_ratio):
+    """
+    Uniformly scale an image using Fourier methods.
+    """
+    if resize_ratio < 1:
+        return scale_down(image, resize_ratio)
+    elif resize_ratio > 1:
+        return scale_up(image, resize_ratio)
+    else:
+        return image.copy()
+
+##########################################
+# c) ncc_2d(image, pattern)
+##########################################
 def ncc_2d(image, pattern):
-    """Computes the Normalized Cross-Correlation (NCC) between an image and a pattern."""
-    image_patches = np.lib.stride_tricks.sliding_window_view(image, pattern.shape)
-    mean_image = np.mean(image_patches, axis=(-2, -1), keepdims=True)
-    mean_pattern = np.mean(pattern)
+    """
+    Compute normalized cross-correlation (NCC) between a grayscale image and a pattern.
+    For memory efficiency we use OpenCV's matchTemplate with TM_CCORR_NORMED.
+    (This avoids creating a huge sliding_window_view array.)
+    """
+    # cv2.matchTemplate returns an array of size (image_h - pattern_h + 1, image_w - pattern_w + 1)
+    result = cv2.matchTemplate(image, pattern, cv2.TM_CCORR_NORMED)
+    return result.astype(np.float32)
 
-    numerator = np.sum((image_patches - mean_image) * (pattern - mean_pattern), axis=(-2, -1))
-    denominator = np.sqrt(np.sum((image_patches - mean_image) ** 2, axis=(-2, -1)) *
-                          np.sum((pattern - mean_pattern) ** 2))
+##########################################
+# d) display(image, pattern)
+##########################################
+def display(image, pattern):
+    """
+    Display the image, the pattern, and the squared NCC heatmap.
+    """
+    plt.figure(figsize=(12,4))
+    plt.subplot(1,3,1)
+    plt.title("Image")
+    plt.imshow(image, cmap="gray", aspect="equal")
 
-    with np.errstate(divide='ignore', invalid='ignore'):
-        ncc = np.where(denominator == 0, 0, numerator / denominator)
+    plt.subplot(1,3,2)
+    plt.title("Pattern")
+    plt.imshow(pattern, cmap="gray", aspect="equal")
 
-    return ncc
-
-
-def find_matches(image, pattern, threshold=0.6, num_best_matches=10):
-    """Finds matches using NCC and returns coordinate list of the brightest spots."""
     ncc = ncc_2d(image, pattern)
-
-    # Find the brightest spots in NCC (top `num_best_matches`)
-    flat_indices = np.argsort(ncc.ravel())[::-1]  # Sort in descending order
-    best_indices = flat_indices[:num_best_matches]  # Take top matches
-
-    # Convert flat indices to 2D indices
-    match_locations = np.array(np.unravel_index(best_indices, ncc.shape)).T
-
-    print(f"   -> Found {len(match_locations)} matches")
-    return match_locations
-
-
-def draw_matches(image, matches, pattern_size):
-    """Draws red rectangles at detected matches."""
-    image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)  # Convert to color image
-
-    for y, x in matches:
-        top_left = (int(x - pattern_size[1] // 2), int(y - pattern_size[0] // 2))
-        bottom_right = (int(x + pattern_size[1] // 2), int(y + pattern_size[0] // 2))
-        cv2.rectangle(image, top_left, bottom_right, (255, 0, 0), 2)  # Red rectangle
-
-    print(f"-> Drawing {len(matches)} matches on image")
-
-    plt.imshow(image)
+    plt.subplot(1,3,3)
+    plt.title("NCC Heatmap (squared)")
+    plt.imshow(ncc**2, cmap="coolwarm", vmin=0, vmax=1, aspect="auto")
+    plt.colorbar(label="NCC Values")
     plt.show()
 
-    cv2.imwrite(f"{CURR_IMAGE}_result.jpg", image)
-    print(f"-> Saved results as {CURR_IMAGE}_result.jpg")
+##########################################
+# e) draw_matches(image, matches, pattern_size)
+##########################################
+def draw_matches(image, matches, pattern_size):
+    """
+    Draw red rectangles on the original color image at the detected match centers.
+    """
+    out_img = image.copy()
+    for (y, x) in matches:
+        top_left = (int(x - pattern_size[1] // 2), int(y - pattern_size[0] // 2))
+        bottom_right = (int(x + pattern_size[1] // 2), int(y + pattern_size[0] // 2))
+        cv2.rectangle(out_img, top_left, bottom_right, (0, 0, 255), 2)
+    plt.figure(figsize=(8,8))
+    plt.imshow(cv2.cvtColor(out_img, cv2.COLOR_BGR2RGB))
+    plt.title("Detected Matches")
+    plt.axis("off")
+    plt.show()
+    cv2.imwrite("result.jpg", out_img)
 
+##########################################
+# Main Script
+##########################################
+# We process two images: "students.jpg" and "thecrew.jpg"
+# We have one template "template.jpg". The instructions indicate:
+#   - For students.jpg: expected face ~40px high, 28px wide.
+#   - For thecrew.jpg: expected face ~7px high, 5px wide.
+# We compute a scale factor so that the faces in the image become approximately
+# the same size as the template.
+# Scale factor = average( template_dimension / expected_face_dimension )
+# (Then we scale the image by that factor, compute NCC, and map match coordinates back.)
 
-# Load the pattern
-pattern = cv2.imread('template.jpg', cv2.IMREAD_GRAYSCALE)
-pattern_h, pattern_w = pattern.shape
+threshold = 0.35  # Use a 0.35 threshold
 
-# STUDENTS IMAGE
+# -----------------------------
+# Process Students Image
+# -----------------------------
 CURR_IMAGE = "students"
-image = cv2.imread(f'{CURR_IMAGE}.jpg', cv2.IMREAD_GRAYSCALE)
+students_color = cv2.imread("students.jpg")
+students_gray = cv2.cvtColor(students_color, cv2.COLOR_BGR2GRAY)
+template_img = cv2.imread("template.jpg")
+template_gray = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
 
-# Range of face sizes to test
-height_range_students = range(30, 51)  # 30 to 50 pixels
-width_range_students = range(25, 33)  # 25 to 32 pixels
+# Compute scale factor:
+#   scale_factor = average( template_height/40, template_width/28 )
+scale_factor_students = ((template_gray.shape[0] / 40) + (template_gray.shape[1] / 28)) / 2.0
+print("Students scale factor:", scale_factor_students)
 
-all_matches_students = []
+students_scaled = scale_image(students_gray, scale_factor_students)
+# We use the template as-is.
+students_pattern = template_gray.copy()
 
-print("\nProcessing students.jpg...")
+display(students_scaled, students_pattern)
 
-for face_h in height_range_students:
-    for face_w in width_range_students:
-        print(f"Testing face size {face_h}x{face_w}")
+ncc_students = ncc_2d(students_scaled, students_pattern)
+matches_students = np.argwhere(ncc_students > threshold)
+# Adjust coordinates to center of pattern.
+matches_students[:, 0] += students_pattern.shape[0] // 2
+matches_students[:, 1] += students_pattern.shape[1] // 2
+# Map coordinates back to original image space.
+matches_students = np.floor(matches_students / scale_factor_students).astype(int)
 
-        height_ratio = pattern_h / face_h
-        width_ratio = pattern_w / face_w
-        scaled_image = scale_image(image, height_ratio, width_ratio)
+draw_matches(students_color, matches_students, students_pattern.shape)
 
-        real_matches = find_matches(scaled_image, pattern)
-
-        # Scale back matches to original size
-        real_matches[:, 0] = (real_matches[:, 0] / height_ratio).astype(int)
-        real_matches[:, 1] = (real_matches[:, 1] / width_ratio).astype(int)
-
-        all_matches_students.extend(real_matches)
-
-# Remove duplicates
-all_matches_students = np.unique(all_matches_students, axis=0)
-
-draw_matches(image, all_matches_students, pattern.shape)
-
-# CREW IMAGE
+# -----------------------------
+# Process Crew Image
+# -----------------------------
 CURR_IMAGE = "thecrew"
-image = cv2.imread(f'{CURR_IMAGE}.jpg', cv2.IMREAD_GRAYSCALE)
+crew_color = cv2.imread("thecrew.jpg")
+crew_gray = cv2.cvtColor(crew_color, cv2.COLOR_BGR2GRAY)
+template_img = cv2.imread("template.jpg")
+template_gray = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
 
-# Range of face sizes to test
-height_range_crew = range(5, 10)  # 5 to 9 pixels
-width_range_crew = range(4, 8)  # 4 to 7 pixels
+# For thecrew.jpg: expected face ~7px high, 5px wide.
+scale_factor_crew = ((template_gray.shape[0] / 7) + (template_gray.shape[1] / 5)) / 2.0
+print("Crew scale factor:", scale_factor_crew)
 
-all_matches_crew = []
+crew_scaled = scale_image(crew_gray, scale_factor_crew)
+crew_pattern = template_gray.copy()  # Template remains unscaled
 
-print("\nProcessing thecrew.jpg...")
+display(crew_scaled, crew_pattern)
 
-for face_h in height_range_crew:
-    for face_w in width_range_crew:
-        print(f"Testing face size {face_h}x{face_w}")
+ncc_crew = ncc_2d(crew_scaled, crew_pattern)
+matches_crew = np.argwhere(ncc_crew > threshold)
+matches_crew[:, 0] += crew_pattern.shape[0] // 2
+matches_crew[:, 1] += crew_pattern.shape[1] // 2
+# Map match coordinates back to the original image.
+matches_crew = np.floor(matches_crew / scale_factor_crew).astype(int)
 
-        height_ratio = pattern_h / face_h
-        width_ratio = pattern_w / face_w
-        scaled_image = scale_image(image, height_ratio, width_ratio)
-
-        real_matches = find_matches(scaled_image, pattern)
-
-        # Scale back matches to original size
-        real_matches[:, 0] = (real_matches[:, 0] / height_ratio).astype(int)
-        real_matches[:, 1] = (real_matches[:, 1] / width_ratio).astype(int)
-
-        all_matches_crew.extend(real_matches)
-
-# Remove duplicates
-all_matches_crew = np.unique(all_matches_crew, axis=0)
-
-draw_matches(image, all_matches_crew, pattern.shape)
+draw_matches(crew_color, matches_crew, crew_pattern.shape)
