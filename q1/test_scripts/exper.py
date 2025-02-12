@@ -179,7 +179,7 @@ CURR_IMAGE = "students"
 image = cv2.imread(f'{CURR_IMAGE}.jpg')
 image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-pattern = cv2.imread('template.jpg')
+pattern = cv2.imread('../template.jpg')
 pattern = cv2.cvtColor(pattern, cv2.COLOR_BGR2GRAY)
 
 ############# DEMO #############
@@ -203,7 +203,7 @@ draw_matches(image_scaled, real_matches, pattern_scaled.shape)
 
 ############# Crew #############
 
-image_scaled = scale_up(cv2.cvtColor(cv2.imread("thecrew.jpg"), cv2.COLOR_BGR2GRAY), 3.33)
+image_scaled = scale_up(cv2.cvtColor(cv2.imread("../thecrew.jpg"), cv2.COLOR_BGR2GRAY), 3.33)
 pattern_scaled = pattern
 
 display(image_scaled, pattern_scaled)

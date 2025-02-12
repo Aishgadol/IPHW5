@@ -11,9 +11,9 @@ warnings.filterwarnings("ignore")
 # --------------------------
 # Global Parameters
 # --------------------------
-THRESHOLD = 0.365     # NCC threshold (set to 0.35)
+THRESHOLD = 0.42     # NCC threshold (set to 0.35)
 BLUR_KERNEL = (7, 7)     # Kernel size for Gaussian blur
-BLUR_SIGMA = 1.6         # Sigma value for Gaussian blur (adjust as desired)
+BLUR_SIGMA = 2.0         # Sigma value for Gaussian blur (adjust as desired)
 
 # Fixed rectangle size: 37x37 (height, width)
 RECT_SIZE = (37, 37)
@@ -134,10 +134,13 @@ def display(image, pattern):
     plt.subplot(2, 3, 1)
     plt.title('Image')
     plt.imshow(image, cmap='gray')
+
     plt.subplot(2, 3, 3)
     plt.title('Pattern')
     plt.imshow(pattern, cmap='gray', aspect='equal')
+
     ncc = ncc_2d(image, pattern)
+
     plt.subplot(2, 3, 5)
     plt.title('Squared NCC Heatmap')
     plt.imshow(ncc**2, cmap='coolwarm', vmin=0, vmax=1, aspect='auto')
@@ -176,26 +179,42 @@ CURR_IMAGE = "students"
 img_students = cv2.imread(f"{CURR_IMAGE}.jpg", cv2.IMREAD_GRAYSCALE)
 if img_students is None:
     raise IOError("Could not load 'students.jpg'.")
+
 # Increase contrast using convertScaleAbs (alpha=1.2)
 img_students = cv2.convertScaleAbs(img_students, alpha=1.2, beta=0)
+
 # Enlarge using scale factor 1.32 for students
 scale_factor_students = 1.32
 img_students_scaled = scale_up(img_students, scale_factor_students)
+
 # Apply Gaussian blur on the enlarged image BEFORE NCC calculation.
-# <-- Gaussian blur applied here on the enlarged image; adjust BLUR_KERNEL and BLUR_SIGMA as needed.
 img_students_scaled = cv2.GaussianBlur(img_students_scaled.astype(np.float32), BLUR_KERNEL, BLUR_SIGMA*0.9)
+
 # Read the template in grayscale and apply Gaussian blur on the pattern.
 template = cv2.imread("template.jpg", cv2.IMREAD_GRAYSCALE)
 if template is None:
     raise IOError("Could not load 'template.jpg'.")
-# <-- Gaussian blur applied here on the template; adjust BLUR_KERNEL and BLUR_SIGMA as needed.
-template = cv2.GaussianBlur(template, BLUR_KERNEL, BLUR_SIGMA)
-# Display the enlarged image, blurred template, and squared NCC heatmap.
-display(img_students_scaled, template)
-# Compute NCC on the blurred enlarged image using the blurred template.
-ncc_students = ncc_2d(img_students_scaled, template)
+template = cv2.GaussianBlur(template.astype(np.float32), BLUR_KERNEL, BLUR_SIGMA)
+
+# --------------------------------
+# Apply Laplacian to both images, fix unsupported src/dst error
+# --------------------------------
+
+students_laplacian = cv2.Laplacian(img_students_scaled.astype(np.float32), cv2.CV_32F)
+students_laplacian = cv2.convertScaleAbs(students_laplacian)
+
+pattern_laplacian = cv2.Laplacian(template.astype(np.float32), cv2.CV_32F)
+pattern_laplacian = cv2.convertScaleAbs(pattern_laplacian)
+
+# Display the Laplacian images and squared NCC heatmap
+display(students_laplacian, pattern_laplacian)
+
+# Compute NCC on the Laplacian images
+ncc_students = ncc_2d(students_laplacian, pattern_laplacian)
 # Find match coordinates where the raw NCC > THRESHOLD.
 matches_students = np.argwhere(ncc_students > THRESHOLD)
+
+# Draw matches on the scaled image (not Laplacian) for clarity.
 draw_matches(img_students_scaled, matches_students, RECT_SIZE)
 
 # --- Process "thecrew.jpg" ---
@@ -203,18 +222,30 @@ CURR_IMAGE = "thecrew"
 img_thecrew_color = cv2.imread(f"{CURR_IMAGE}.jpg")
 if img_thecrew_color is None:
     raise IOError("Could not load 'thecrew.jpg'.")
+
 # Convert to grayscale.
 img_thecrew_gray = cv2.cvtColor(img_thecrew_color, cv2.COLOR_BGR2GRAY)
+
 # Increase contrast using convertScaleAbs (alpha=1.2)
 img_thecrew_gray = cv2.convertScaleAbs(img_thecrew_gray, alpha=1.2, beta=0)
+
 # Enlarge using scale factor 3.33 for thecrew.
 scale_factor_thecrew = 3.33
 img_thecrew_scaled = scale_up(img_thecrew_gray, scale_factor_thecrew)
+
 # Apply Gaussian blur on the enlarged image BEFORE NCC calculation.
-# <-- Gaussian blur applied here on the enlarged image; adjust BLUR_KERNEL and BLUR_SIGMA as needed.
 img_thecrew_scaled = cv2.GaussianBlur(img_thecrew_scaled.astype(np.float32), BLUR_KERNEL, BLUR_SIGMA)
-# Reuse the same blurred template.
-display(img_thecrew_scaled, template)
-ncc_thecrew = ncc_2d(img_thecrew_scaled, template)
+
+# Reuse the same blurred template => but also recalc Laplacian for clarity:
+pattern_laplacian_thecrew = cv2.Laplacian(template.astype(np.float32), cv2.CV_32F)
+pattern_laplacian_thecrew = cv2.convertScaleAbs(pattern_laplacian_thecrew)
+
+# Laplacian for the thecrew image
+thecrew_laplacian = cv2.Laplacian(img_thecrew_scaled.astype(np.float32), cv2.CV_32F)
+thecrew_laplacian = cv2.convertScaleAbs(thecrew_laplacian)
+
+display(thecrew_laplacian, pattern_laplacian_thecrew)
+ncc_thecrew = ncc_2d(thecrew_laplacian, pattern_laplacian_thecrew)
 matches_thecrew = np.argwhere(ncc_thecrew > THRESHOLD)
+
 draw_matches(img_thecrew_scaled, matches_thecrew, RECT_SIZE)
