@@ -98,7 +98,7 @@ def find_hough_shape(image, edge_image, r_min, r_max, bin_threshold):
 		rgb_color = (out_color[2], out_color[1], out_color[0])
 		hex_color = '#%02x%02x%02x' % rgb_color
 		plt.plot(x1, y1, markersize=1.5, color=hex_color)
-		print(x_c, y_c, r, vp)
+		print(f' x: {x_c}, y: {y_c}, radius: {r}, confidence: {vp}')
 	return output_img
 
 # -------------------- main code --------------------
