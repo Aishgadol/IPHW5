@@ -12,7 +12,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# global variable used for scaling (e.g. for special processing on "thecrew")
+# global variable used for scaling
 CURR_IMAGE = "students"
 
 
@@ -57,12 +57,15 @@ def scale_up(image, resize_ratio):
     if resize_ratio < 1:
         raise ValueError("resize_ratio must be at least 1")
     h, w = image.shape[:2]
+    #calc new dimensions
     new_h = int(round(h * resize_ratio))
     new_w = int(round(w * resize_ratio))
     f_transform = fft2(image, axes=(0, 1))
     f_shifted = fftshift(f_transform, axes=(0, 1))
 
+    #bring in our faorite global dude
     global CURR_IMAGE
+    #thecrew gets aliased so we need to fix by smoothing
     if CURR_IMAGE == "thecrew":
         # for "thecrew", apply a frequency mask to reduce aliasing
         y = np.arange(h) - h / 2
@@ -72,7 +75,8 @@ def scale_up(image, resize_ratio):
         cutoff = 0.420 * min(h, w)
         mask = (d < cutoff).astype(f_shifted.dtype)
         f_shifted = f_shifted * mask
-
+    #since thecrew is colored and we want the result to be grayscale with colored rectangles
+    #we need to make sure it has color channels
     if image.ndim == 2:
         f_padded = np.zeros((new_h, new_w), dtype=f_shifted.dtype)
     else:
@@ -161,7 +165,7 @@ def apply_gamma_correction(image, gamma):
     return np.clip(gamma_corr, 0, 255).astype(np.float32)
 
 
-def process_image_pipeline(img, brightness, contrast, gamma):
+def process_image(img, brightness, contrast, gamma):
     #  process the image: adjust brightness, contrast, then apply gamma correction
     proc = np.clip(img * brightness, 0, 255).astype(np.float32)
     proc = np.clip(proc * contrast, 0, 255).astype(np.float32)
@@ -185,34 +189,34 @@ pattern = cv2.cvtColor(pattern, cv2.COLOR_BGR2GRAY)
 ############# DEMO #############
 display(image, pattern)
 
-############# Students #############
+############# students.jpg #############
 
 image_scaled = scale_up(image, 1.32)
 pattern_scaled = pattern
 
 display(image_scaled, pattern_scaled)
 
-proc_img = process_image_pipeline(image_scaled, 1.9, 0.7, 0.21)
-proc_img = cv2.GaussianBlur(proc_img, (7, 7), 2)
-proc_pattern = process_template(pattern_scaled)
-proc_pattern = cv2.GaussianBlur(proc_pattern, (7, 7), 2)
-ncc = ncc_2d(proc_img, proc_pattern)
+processed_img = process_image(image_scaled, 1.9, 0.7, 0.21)
+processed_img = cv2.GaussianBlur(processed_img, (7, 7), 2)
+processed_pattern = process_template(pattern_scaled)
+processed_pattern = cv2.GaussianBlur(processed_pattern, (7, 7), 2)
+ncc = ncc_2d(processed_img, processed_pattern)
 real_matches = np.argwhere(ncc > 0.408)
 
 draw_matches(image_scaled, real_matches, pattern_scaled.shape)
 
-############# Crew #############
+############# thecrew.jpg #############
 
 image_scaled = scale_up(cv2.cvtColor(cv2.imread("thecrew.jpg"), cv2.COLOR_BGR2GRAY), 3.33)
 pattern_scaled = pattern
 
 display(image_scaled, pattern_scaled)
 
-proc_img = process_image_pipeline(image_scaled, 1.9, 0.7, 0.21)
-proc_img = cv2.GaussianBlur(proc_img, (7, 7), 2)
-proc_pattern = process_template(pattern_scaled)
-proc_pattern = cv2.GaussianBlur(proc_pattern, (7, 7), 2)
-ncc = ncc_2d(proc_img, proc_pattern)
+processed_img = process_image(image_scaled, 1.9, 0.7, 0.21)
+processed_img = cv2.GaussianBlur(processed_img, (7, 7), 2)
+processed_pattern = process_template(pattern_scaled)
+processed_pattern = cv2.GaussianBlur(processed_pattern, (7, 7), 2)
+ncc = ncc_2d(processed_img, processed_pattern)
 real_matches = np.argwhere(ncc > 0.408)
 
 draw_matches(image_scaled, real_matches, pattern_scaled.shape)
